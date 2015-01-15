@@ -36,6 +36,7 @@ static fileInfo_t inodes[MAX_FILES_COUNT];
 
 static int fs_getattr(const char *path, struct stat *stbuf);
 static int fs_mknod(const char *path, mode_t mode, dev_t rdev);
+static int fs_unlink(const char *path);
 static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
              off_t offset, struct fuse_file_info *fi);
 static int fs_open(const char *path, struct fuse_file_info *fi);
@@ -55,27 +56,21 @@ int findFileIndex(const char * path);
 void sendNotification(const char * name, const char * text);
 long getUnusedNodeIndex();
 
-void initNode(long index, const char *path, const char * content, mode_t mode)
-{
-    inodes[index].mode = mode;
-    strcpy(inodes[index].path, path);
-    inodes[index].content = (content_t *) malloc(500);
-    strcpy(inodes[index].content, content);
-    inodes[index].nlinks = 1;
-    inodes[index].size = strlen(inodes[index].content);
-    inodes[index].isUsed = 1;    
-}
+
+void initNode(long index, const char *path, mode_t mode);
 
 static struct fuse_operations fs_operations = {
     .getattr    = fs_getattr,
     .readdir    = fs_readdir,
+    .access     = fs_access,
 
     .open       = fs_open,
     .read       = fs_read,
     .write      = fs_write,
-    .mknod      = fs_mknod,
 
-    .access     = fs_access,
+    .mknod      = fs_mknod,
+    .unlink     = fs_unlink,
+
 
     .rename     = fs_rename,                           
     .chmod      = fs_chmod,                           
@@ -102,15 +97,14 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-static int fs_mknod(const char *path, mode_t mode, dev_t rdev)
+int fs_mknod(const char *path, mode_t mode, dev_t rdev)
 {
-    int res;
+    int res = 0;
     int index;
 
     if (S_ISREG(mode)) {
         if((index = getUnusedNodeIndex())== -1) return -ENOMEM;
-        initNode(index, path, "\0", mode);
-
+        initNode(index, path, mode);
     } else if (S_ISFIFO(mode)) {
         sendNotification("Can't create named pipe", "(function is not implemented)");
         res = -1;
@@ -119,6 +113,18 @@ static int fs_mknod(const char *path, mode_t mode, dev_t rdev)
         res = -1;
     }
         
+
+    return res;
+}
+
+int fs_unlink(const char *path)
+{
+    int index = findFileIndex(path);
+    if(index == -1) 
+        return -ENOENT;
+
+    inodes[index].isUsed = 0;
+    free(inodes[index].content);
 
     return 0;
 }
@@ -154,7 +160,6 @@ int fs_write(const char *path, const char *buf, size_t size,
     if((index = findFileIndex(path)) == -1)
         return -ENOENT;
 
-    printf("(%s %d)\n\n\n\n\n\n", inodes[index].content, size);
     strcpy(inodes[index].content + offset, buf);
     inodes[index].size = size;
     return res;
@@ -217,8 +222,10 @@ int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     (void) fi;
     int i;
 
-    if (strcmp(path, "/") != 0)
+    if (strcmp(path, "/") != 0) {
         return -ENOENT;
+    }
+        
 
     filler(buf, ".", NULL, 0);
     filler(buf, "..", NULL, 0);
@@ -287,4 +294,14 @@ long getUnusedNodeIndex()
         if(! inodes[i].isUsed) return i;
     }
     return -1;
+}
+
+void initNode(long index, const char *path, mode_t mode)
+{
+    inodes[index].mode = mode;
+    strcpy(inodes[index].path, path);
+    inodes[index].content = (content_t *) malloc(500);
+    inodes[index].nlinks = 1;
+    inodes[index].size = 0;
+    inodes[index].isUsed = 1;    
 }
