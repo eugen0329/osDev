@@ -1,0 +1,1 @@
+/usr/bin/cc  -Wall -D_FILE_OFFSET_BITS=64   CMakeFiles/bin.dir/src/helpers.c.o CMakeFiles/bin.dir/src/main.c.o CMakeFiles/bin.dir/src/vdev.c.o CMakeFiles/bin.dir/src/fs.c.o  -o bin -rdynamic -lfuse -lnotify -lgdk_pixbuf-2.0 -lgio-2.0 -lgobject-2.0 -lglib-2.0 
