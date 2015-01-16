@@ -101,19 +101,20 @@ static struct fuse_operations fs_operations = {
     .getattr    = fs_getattr,
     .readdir    = fs_readdir,
 
+    .write      = fs_write,
     .open       = fs_open,
     .read       = fs_read,
 
+
     .access     = fs_access,
 
-    .write      = fs_write,
 
     //.mknod      = fs_mknod,
     //.unlink     = fs_unlink,
 
     .rename     = fs_rename,                           
-    //.chmod      = fs_chmod,                           
-    //.truncate   = fs_truncate, 
+    .chmod      = fs_chmod,                           
+    .truncate   = fs_truncate, 
 
 };
 
@@ -131,14 +132,7 @@ char * getDirname(const char * path);
 
 int main(int argc, char *argv[])
 {
-    memset(inodes, 0, sizeof(fileInfo_t) * MAX_FILES_COUNT);
-    inodes[0].mode = S_IFREG | 0644;
-    strcpy(inodes[0].path, "/hello");
-    inodes[0].content = (content_t *) malloc(500);
-    strcpy(inodes[0].content, "Hello World!\n");
-    inodes[0].nLinks = 1;
-    inodes[0].size = strlen(inodes[0].content);
-    inodes[0].isUsed = 1;
+
 
     fs_init();
 
@@ -153,7 +147,7 @@ int main(int argc, char *argv[])
 int fs_getattr(const char *path, struct stat *stbuf)
 {
     int res = 0;
-    //int index;
+    //printf("fs_getattr:path = %s\n", path);
     inode_t * inode;
 
     memset(stbuf, 0, sizeof(struct stat));
@@ -205,26 +199,27 @@ int fs_unlink(const char *path)
 
 int fs_write(const char *path, const char *buf, size_t size, off_t offset, fuseFInfo_t *fi)
 {
-    int res = 0;
     (void) fi;  
-    int index;
-    if((index = findFileIndex(path)) == -1)
-        return -ENOENT;
+
+    printf("~~Write:path = %s, size = %d  ", path, size);
+
+    //inode_t * inode;
+    //if((inode = getInodeByPath(path)) == NULL) return 0;
+    //void* dataBlock;
+    //if ((dataBlock = getDataBlock(inode->blocks[0])) == NULL) return 0;
 
 
-    inode_t * inode;
-    if((inode = getInodeByPath(path)) == NULL) return -ENOENT;
-    void* dataBlock = getDataBlock(inode->blocks[0]);
-
-    memcpy(dataBlock + offset, buf, strlen(buf));
-    inode->size = size;
+    //strcpy(dataBlock + offset, buf);
+    //inode->size += size ;
     //strcpy(inodes[index].content + offset, buf);
     //inodes[index].size = size;
-    return res;
+    printf(" +\n");
+    return 0;
 }
 
 int fs_access(const char *path, int functMode)
 {
+    printf("access: path %s \n",path);
     switch(functMode) {
         case R_OK:
             break;
@@ -243,7 +238,9 @@ int fs_access(const char *path, int functMode)
 
 int fs_open(const char *path, fuseFInfo_t *fi)
 {
+    printf("Open: path %s ",path);
     if(getInodeByPath(path) == NULL) return -ENOENT;
+    printf("+\n" );
     return 0;
 }
 
@@ -252,14 +249,22 @@ int fs_read(const char *path, char *buf, size_t size, off_t offset, fuseFInfo_t 
     size_t len;
     (void) fi;
 
+    printf("read: path %s size %d offs %d\n", path, size, offset);
+
+
     inode_t * inode;
     if((inode = getInodeByPath(path)) == NULL) return -ENOENT;
     void* dataBlock = getDataBlock(inode->blocks[0]);
+    if(dataBlock == NULL) return -ENOENT;
 
-    len = inode->size;
+
+    printf("%d\n", inode->size);
+    len = strlen(dataBlock);
     if(offset < len) {
         if (offset + size > len) size = len - offset;
-        memcpy(buf, dataBlock + offset, size);
+        strcpy(buf, dataBlock + offset);
+        //memcpy(buf, dataBlock + offset, size);
+
     } else
         size = 0;
 
@@ -289,23 +294,23 @@ int fs_readdir(const char *path, void *buf, filler_t filler, off_t offset, fuseF
 
 int fs_rename(const char *from, const char *to)
 {
-    int index;
-    if((index = findFileIndex(from)) == -1)
-        return -ENOENT;
-
+    inode_t * inode;
+    
     char * dir = getDirname(from);
+    if((inode = getInodeByPath(dir)) == NULL) {
+        free(dir);
+        return -ENOENT;
+    }
     char * oldName = getBasename(from);
+    dirEntry_t * de = getDirEntry(getDataBlock(inode->blocks[0]), oldName, strlen(oldName));
+    if(de == NULL) {
+        free(dir);
+        free(oldName);
+        return -ENOENT;
+    }
     char * newName = getBasename(to);
 
-    printf("%s %s %s\n", dir, oldName, newName);
-    printf("rename %s %s \n", from, to);
-    inode_t * inode;
-    if((inode = getInodeByPath(dir)) == NULL) return -ENOENT;
-    dirEntry_t * de = getDirEntry(getDataBlock(inode->blocks[0]), oldName, strlen(oldName));
-    if(de == NULL) return -ENOENT;
-    printf("%s\n", de->name);
     strcpy(de->name, newName);
-    printf("%s\n", de->name);
 
     free(dir);
     free(oldName);
@@ -313,25 +318,24 @@ int fs_rename(const char *from, const char *to)
     return 0;
 }
 
-//- rgetCharIndex(from)
-
 int fs_chmod(const char *path, mode_t newMode)
 {
-    int index;
-    if((index = findFileIndex(path)) == -1)
-        return -ENOENT;
-
-    inodes[index].mode = newMode;
+    inode_t * inode;
+    printf("fs_chmod: path %s \n",path);
+    if((inode = getInodeByPath(path)) == NULL) return -ENOENT;
+    inode->mode = newMode;
     return 0;
 }
 
 int fs_truncate(const char *path, off_t size)
 {
-    int index;
-    if((index = findFileIndex(path)) == -1)
-        return -ENOENT;
-    inodes[index].content[0] = '\0';
-    inodes[index].size = 0;
+    inode_t * inode;
+    printf("fs_truncate: path %s \n",path);
+    if((inode = getInodeByPath(path)) == NULL) return -ENOENT;
+    void* dataBlock = getDataBlock(inode->blocks[0]);
+    if(dataBlock == NULL) return -ENOENT;
+
+    inode->size = 0;
     return 0;
 }
 
@@ -344,15 +348,7 @@ int findFileIndex(const char * path)
     return -1;
 }
 
-void sendNotification(const char * name, const char * text)
-{
-    static char notifyIcon[] = "dialog-information";
-    notify_init (name);
-    NotifyNotification * notif = notify_notification_new (name, text, notifyIcon);
-    notify_notification_show (notif, NULL);
-    g_object_unref(G_OBJECT(notif));
-    notify_uninit();
-}
+
 
 long getUnusedNodeIndex()
 {
@@ -373,19 +369,6 @@ void initNode(long index, const char *path, mode_t mode)
     inodes[index].isUsed = 1;    
 }
 
-int getCharIndex(const char * str, char target)
-{
-    const char *ptr = strchr(str, target);
-    if(ptr) return ptr - str;
-    return -1;
-}
-
-int rgetCharIndex(const char * str, char target)
-{
-    const char *ptr = strrchr(str, target);
-    if(ptr) return ptr - str;
-    return -1;
-}
 
 void fs_init()
 {
@@ -495,4 +478,44 @@ char * getDirname(const char * path)
     strcpy(dir, path);
     dirname(dir);
     return dir;     
+}
+
+void sendNotification(const char * name, const char * text)
+{
+    static char notifyIcon[] = "dialog-information";
+    notify_init (name);
+    NotifyNotification * notif = notify_notification_new (name, text, notifyIcon);
+    notify_notification_show (notif, NULL);
+    g_object_unref(G_OBJECT(notif));
+    notify_uninit();
+}
+
+
+//    memset(inodes, 0, sizeof(fileInfo_t) * MAX_FILES_COUNT);
+//    inodes[0].mode = S_IFREG | 0644;
+//    strcpy(inodes[0].path, "/hello");
+//    inodes[0].content = (content_t *) malloc(500);
+//    strcpy(inodes[0].content, "Hello World!\n");
+//    inodes[0].nLinks = 1;
+//    inodes[0].size = strlen(inodes[0].content);
+//    inodes[0].isUsed = 1;//
+
+
+
+
+
+
+
+int getCharIndex(const char * str, char target)
+{
+    const char *ptr = strchr(str, target);
+    if(ptr) return ptr - str;
+    return -1;
+}
+
+int rgetCharIndex(const char * str, char target)
+{
+    const char *ptr = strrchr(str, target);
+    if(ptr) return ptr - str;
+    return -1;
 }
