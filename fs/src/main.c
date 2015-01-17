@@ -32,11 +32,9 @@ static struct fuse_operations fs_operations = {
     .open       = fs_open,
     .read       = fs_read,
 
-
     .access     = fs_access,
 
-
-    //.mknod      = fs_mknod,
+    .mknod      = fs_mknod,
     //.unlink     = fs_unlink,
 
     .rename     = fs_rename,                           
@@ -46,8 +44,11 @@ static struct fuse_operations fs_operations = {
 
 int main(int argc, char *argv[])
 {
+    int res;
     fs_init();
-    fuse_main(argc, argv, &fs_operations, NULL); 
+    
+    res = fuse_main(argc, argv, &fs_operations, NULL); 
+    
     free(vdev);
-    return 0;
+    return res;
 }

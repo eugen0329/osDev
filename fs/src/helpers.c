@@ -26,7 +26,6 @@ char * getDirname(const char * path)
 {
     int len;
     len  = rgetCharIndex(path, '/') + 2;
-    //printf("len%d\n", len);
     char * dir = (char *) malloc(strlen(path));
     strcpy(dir, path);
     dirname(dir);

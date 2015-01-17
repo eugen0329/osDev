@@ -23,13 +23,15 @@
 #define MAX_FPATH_LENGTH 500
 
 
-#define FS_SIZE         100000000
 #define MAX_NAME_LEN    255
 #define INODES_VEC sizeof(superblock_t)
 #define DATA_BLOCK_SIZE 1024
 #define DIR_ENTR_IN_BLOCK ((sb->dataBlockSize / sizeof(dirEntry_t)) - 1)
 #define AVAILABLE_INODE 0
 #define AVAILABLE_BLOCK 1
+
+typedef enum {BLOCK_OP, INODE_OP} operand_t;
+typedef enum {true = 1, false = 0} boolean;
 
 typedef char content_t;
 typedef struct fuse_file_info fuseFInfo_t;
@@ -85,8 +87,9 @@ int fs_truncate(const char *path, off_t size);
 int fs_access(const char *path, int functMode);
 int fs_write(const char *path, const char *buf, size_t size,off_t offset, fuseFInfo_t *fi);
 
-long getUnusedNodeIndex();
 dirEntry_t* getDirEntry(void * block, const char* name, uint16_t nameLen);
+
+long getUnusedNodeIndex();
 
 void initNode(long index, const char *path, mode_t mode);
 inode_t* getInodeByPath(const char *path);
@@ -95,7 +98,11 @@ inode_t* getInode(uint64_t id);
 void* getDataBlock(uint64_t id);
 
 
-void test();
-int findFileIndex(const char * path);
+uint64_t getUnused(operand_t operand);
+void setUsed(operand_t operand, uint64_t id, uint8_t val);
+
+uint8_t addDirEntry(const char * dir, const char* name, uint64_t inodeId);
+uint8_t createFile(const char * path, mode_t mode);
+uint64_t makeInode(mode_t mode);
 
 #endif /* end of include guard: FS_RMFCDDLE */

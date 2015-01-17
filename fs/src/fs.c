@@ -22,8 +22,8 @@ int fs_mknod(const char *path, mode_t mode, dev_t rdev)
     int index;
 
     if (S_ISREG(mode)) {
-        if((index = getUnusedNodeIndex())== -1) return -ENOMEM;
-        initNode(index, path, mode);
+        //sendNotification("Can't asdasdasd named pipe", "(function is not asd)");
+        createFile(path, mode);
     } else if (S_ISFIFO(mode)) {
         sendNotification("Can't create named pipe", "(function is not implemented)");
         res = -1;
@@ -33,17 +33,17 @@ int fs_mknod(const char *path, mode_t mode, dev_t rdev)
     }
         
 
-    return res;
+    return 0;
 }
 
 int fs_unlink(const char *path)
 {
-    int index = findFileIndex(path);
-    if(index == -1) 
-        return -ENOENT;
+    /*int index = findFileIndex(path);*/
+    /*if(index == -1) */
+        /*return -ENOENT;*/
 
-    inodes[index].isUsed = 0;
-    free(inodes[index].content);
+    /*inodes[index].isUsed = 0;*/
+    /*free(inodes[index].content);*/
 
     return 0;
 }
@@ -56,6 +56,11 @@ int fs_write(const char *path, const char *buf, size_t size, off_t offset, fuseF
     inode_t * inode;
     if((inode = getInodeByPath(path)) == NULL) return -ENOENT;
     void* dataBlock;
+    if(inode->blocks[0] == 0) {
+        inode->blocks[0] = getUnused(BLOCK_OP);
+        printf("write: %s %d\n", path, inode->blocks[0]);
+        setUsed(BLOCK_OP, inode->blocks[0], true);
+    }
     if ((dataBlock = getDataBlock(inode->blocks[0])) == NULL) return -ENOENT;
     
     strcpy(dataBlock + offset, buf);
@@ -106,6 +111,7 @@ int fs_read(const char *path, char *buf, size_t size, off_t offset, fuseFInfo_t 
     if(dataBlock == NULL) return -ENOENT;
 
 
+    printf("reading path  %s , block %d \n", path, inode->blocks[0]);
     //printf("%d\n", inode->size);
     len = strlen(dataBlock);
     if(offset < len) {
@@ -187,17 +193,6 @@ int fs_truncate(const char *path, off_t size)
     return 0;
 }
 
-int findFileIndex(const char * path)
-{
-    int i;
-    for(i = 0; i < MAX_FILES_COUNT; i++) {
-        if(inodes[i].path && ! strncmp(inodes[i].path, path, MAX_FPATH_LENGTH)) return i;
-    }
-    return -1;
-}
-
-
-
 long getUnusedNodeIndex()
 {
     int i;
@@ -217,83 +212,17 @@ void initNode(long index, const char *path, mode_t mode)
     inodes[index].isUsed = 1;    
 }
 
-uint64_t getAvailable(int mode);
-void tagAvailable(int mode, uint64_t id);
-
-void fs_init()
-{
-    vdev = calloc(1, FS_SIZE);
-    sb = (superblock_t *) vdev;
-    sb->fsSize = FS_SIZE;
-    sb->nInodes = 50;
-    sb->nBlocks = 100;
-    sb->dataBlockSize = DATA_BLOCK_SIZE;
-    sb->firstBlock = sizeof(superblock_t) + sizeof(inode_t) * sb->nInodes;
-    //printf("superblock size = %d, inode size = %d, memory block size = %d, dirEnt size = %d\n\n\n\n\n", sizeof(superblock_t), sizeof(inode_t), sb->dataBlockSize, sizeof(dirEntry_t));
-
-    inode_t * inode = (inode_t *) (vdev + sizeof(superblock_t));
-    inode->mode = S_IFDIR | 0755;
-    inode->nLinks = 2;
-    inode->blocks[0] = 2;//sb->firstBlock;
-    inode->size = sb->dataBlockSize;
-
-    dirEntry_t* de = (dirEntry_t *) getDataBlock(inode->blocks[0]);
-    de->inode = 1;
-    strcpy(de->name, "hello");    
-
-    inode = getInode(1);
-    inode->mode = S_IFREG | 0644;
-    inode->nLinks = 1;
-    char helloStr[] = "Hello world!";
-    inode->size = strlen(helloStr);
-    inode->blocks[0] = 3; 
-    void* memBlock = getDataBlock(inode->blocks[0]);
-    memcpy(memBlock, helloStr, strlen(helloStr));    
-
-
-    //void * bitmapBlock = getDataBlock(0)
-    byte_t * b = (byte_t *) getDataBlock(0);
-    tagAvailable(AVAILABLE_INODE, 0);
-    tagAvailable(AVAILABLE_INODE, 3);
-    //*b |= 1;
-    //*b |= 1 << 1;
-    printf("%d\n", *b);
-    printf("%d\n", getAvailable(AVAILABLE_INODE));
-    exit(0);
-}
-
-void tagAvailable(int mode, uint64_t id)
-{
-    uint8_t nbit = id % 8;
-    uint64_t nbyte = id / 8;
-    byte_t * bitmap;
-
-    switch(mode) {
-        case AVAILABLE_INODE:
-            bitmap = (byte_t *) (getDataBlock(0) + nbyte);
-            break;
-        case AVAILABLE_BLOCK:
-            bitmap = (byte_t *) (getDataBlock(1) + nbyte);
-            break;     
-    }
-    *bitmap |= 1 << nbit;
-}
-
-void initInode(int mode, uint64_t id)
-{
-}
-
-uint64_t getAvailable(int mode) 
+uint64_t getUnused(operand_t operand) 
 {
     void * bitmapBlock;
     byte_t * b;
     int bitNum, byteNum;
 
-    switch(mode) {
-        case AVAILABLE_INODE:
+    switch(operand) {
+        case INODE_OP:
             bitmapBlock = getDataBlock(0);
             break;
-        case AVAILABLE_BLOCK:
+        case BLOCK_OP:
             bitmapBlock = getDataBlock(1);
             break;     
     }
@@ -308,43 +237,51 @@ uint64_t getAvailable(int mode)
     return 0;
 }
 
+void setUsed(operand_t operand, uint64_t id, uint8_t val)
+{
+    uint8_t nbit = id % 8;
+    uint64_t nbyte = id / 8;
+    byte_t * bitmap;
 
-
-
-
-
-
-
+    switch(operand) {
+        case INODE_OP:
+            bitmap = (byte_t *) (getDataBlock(0) + nbyte);
+            break;
+        case BLOCK_OP:
+            bitmap = (byte_t *) (getDataBlock(1) + nbyte);
+            break;     
+    }
+    val == 1 ? (*bitmap |= 1 << nbit ) : (*bitmap &= ~(1 << nbit));
+}
 
 inode_t* getInodeByPath(const char *path)
 {
     inode_t* inode = getInode(0);
     int nameStart = 1;
     int nameEnd = 1;
-
+    dirEntry_t *de;
     if(! strcmp(path, "/")) return inode;
 
     while(1) {
         if( (nameEnd = getCharIndex(path + nameStart, '/')) == -1) nameEnd = strlen(path);
-        dirEntry_t * de = getDirEntry(getDataBlock(inode->blocks[0]), path + nameStart, nameEnd - nameStart);
+         de = getDirEntry(getDataBlock(inode->blocks[0]), path + nameStart, nameEnd - nameStart);
         inode = (de == NULL) ? NULL : getInode(de->inode);
         if(de == NULL || path[nameEnd] == '\0') break;
         nameStart = nameEnd;        
     }
-
+    if(! strcmp(path, "/hello") || ! strcmp(path, "/goodbye") ) printf("getInodeByPath: %s -> %d\n", path, de->inode);
     return inode;
 }
 
 dirEntry_t* getDirEntry(void * block, const char* name, uint16_t nameLen)
 {
-    
     int i;
     int lim = (sb->dataBlockSize / sizeof(dirEntry_t)) - 1;
     dirEntry_t* de = (dirEntry_t *) block;
 
     for(i = 0; i < lim; i++) {
         if(strlen(de[i].name) == nameLen && ! strncmp(de[i].name, name, nameLen)) {
-            return de;
+            return &de[i];
         }
     }
     
@@ -361,14 +298,84 @@ void* getDataBlock(uint64_t id)
     return vdev + sb->firstBlock + id * sb->dataBlockSize;
 }
 
-
-void test()
+void fs_init()
 {
-    char * data = (char *) malloc(500);
-    inode_t* inode ;//= getInodeByPath("/");
-    if((inode = getInodeByPath("/hello")) == NULL) exit(1);
-    memcpy(data, getDataBlock(1) , inode->size);
-    data[inode->size] = '\0';
-    //printf("size %d, mode %x, nlinks %d, data \"%s\"\n", inode->size, inode->mode, inode->nLinks, data); 
-    exit(1);     
+    vdev = calloc(1, V_DEV_SIZE);
+    sb = (superblock_t *) vdev;
+    sb->fsSize = V_DEV_SIZE;
+    sb->nInodes = 50;
+    sb->nBlocks = 100;
+    sb->dataBlockSize = DATA_BLOCK_SIZE;
+    sb->firstBlock = sizeof(superblock_t) + sizeof(inode_t) * sb->nInodes;
+    //printf("superblock size = %d, inode size = %d, memory block size = %d, dirEnt size = %d\n\n\n\n\n", sizeof(superblock_t), sizeof(inode_t), sb->dataBlockSize, sizeof(dirEntry_t));
+
+    setUsed(BLOCK_OP, 0, true);
+    setUsed(BLOCK_OP, 1, true);
+
+    uint64_t inodeId = makeInode(S_IFDIR | 0755);
+
+    inode_t * inode = getInode(inodeId);
+    //inode_t * inode = (inode_t *) (vdev + sizeof(superblock_t));
+    //inode->mode = S_IFDIR | 0755;
+    inode->nLinks = 2;
+    //inode->blocks[0] = 2;
+    inode->size = sb->dataBlockSize;
+    
+
+    if(createFile("/hello", S_IFREG | 0644)) sendNotification("/hello", "asdads");
+    //if(createFile("/goodbye", S_IFREG | 0644)) sendNotification("goodbye", "asdads");  
 }
+
+uint8_t createFile(const char * path, mode_t mode)
+{
+    char* dir = getDirname(path);    
+    char* name = getBasename(path);    
+
+    
+    int inodeId = makeInode(mode);
+    printf("create: %s, inode  %d\n", path, inodeId);
+    if(addDirEntry(dir, name, inodeId) != 0) return -1;
+
+    free(dir);
+    free(name);
+    return 0;
+}
+
+uint64_t makeInode(mode_t mode)
+{
+    int inodeId = getUnused(INODE_OP);
+    setUsed(INODE_OP, inodeId, true);
+
+    inode_t * inode = getInode(inodeId);
+    //memset(inode, 0, sizeof(inode_t));
+    inode->mode = mode;
+    inode->nLinks = 1;
+    inode->nBlocks = 1;
+    inode->size = 0;
+    inode->blocks[0] = getUnused(BLOCK_OP);
+    setUsed(BLOCK_OP, inode->blocks[0], true);
+    printf("makeInode: inode %d block %d\n", inodeId, inode->blocks[0] );
+
+    return inodeId;
+}
+
+uint8_t addDirEntry(const char * dir, const char* name, uint64_t inodeId)
+{
+    inode_t * dirInode = getInodeByPath(dir);
+    if(dirInode == NULL) return -ENOENT;
+    dirEntry_t* de = getDataBlock(dirInode->blocks[0]);
+    int i;
+    int lim = (sb->dataBlockSize / sizeof(dirEntry_t)) - 1;
+    for(i = 0; i < lim; i++) {
+        if(de[i].inode == 0) {
+            strcpy(de[i].name, name);
+            de[i].inode = inodeId;
+            printf("add entr %s, inode = %d,i = %d\n",name, inodeId, i);
+            return 0;
+        }
+    }
+
+    
+    return -1;
+}
+
